@@ -61,3 +61,24 @@ export function scanDuplicates(list: Riddle[], threshold = DUP_THRESHOLD): Map<s
   }
   return map;
 }
+
+export interface DupPair {
+  aId: string;
+  bId: string;
+  similarity: number;
+}
+
+/** 全库扫描的成对视图：每对相似只保留一条，按相似度降序（列表页「全库查重」展示用） */
+export function scanDupPairs(list: Riddle[], threshold = DUP_THRESHOLD): DupPair[] {
+  const seen = new Set<string>();
+  const out: DupPair[] = [];
+  for (const [id, arr] of scanDuplicates(list, threshold)) {
+    for (const m of arr) {
+      const key = id < m.id ? `${id}|${m.id}` : `${m.id}|${id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ aId: id, bId: m.id, similarity: m.similarity });
+    }
+  }
+  return out.sort((x, y) => y.similarity - x.similarity);
+}

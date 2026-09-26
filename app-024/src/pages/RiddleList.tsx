@@ -3,19 +3,20 @@ import { useMemo, useRef, useState } from 'react';
 import { useAppState, navigate } from '../ui/router';
 import { VerdictBadge, Stars } from '../ui/bits';
 import { EMPTY_FILTERS, filterRiddles, allTags, type RiddleFilters } from '../lib/search';
-import { scanDuplicates, type DupMatch } from '../lib/duplicates';
+import { scanDupPairs, type DupPair } from '../lib/duplicates';
 import { importPreview, riddleToRow, stringifyCSV, withBOM, RIDDLE_CSV_HEADERS, type ImportPreview } from '../lib/csv';
 import { CATEGORY_LABEL, FORMAT_LABEL, VERDICT_LABEL, type Riddle, type Verdict } from '../types';
 import { downloadText, formatDateTime } from '../lib/format';
 import { exportFileName, store } from '../lib/store';
 
 const PAGE_SIZE = 50;
+const DUP_LIST_LIMIT = 20; // 查重结果最多直接列出的组数
 
 export function RiddleList() {
   const state = useAppState();
   const [filters, setFilters] = useState<RiddleFilters>(EMPTY_FILTERS);
   const [page, setPage] = useState(0);
-  const [dupResult, setDupResult] = useState<Map<string, DupMatch[]> | null>(null);
+  const [dupPairs, setDupPairs] = useState<DupPair[] | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [notice, setNotice] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
@@ -39,9 +40,14 @@ export function RiddleList() {
   };
 
   const doScanDup = () => {
-    const map = scanDuplicates(state.riddles);
-    setNotice(`全库查重完成，命中 ${map.size} 条`);
-    setDupResult(map);
+    if (state.riddles.length < 2) {
+      setDupPairs(null);
+      setNotice('谜库不足两条，无需查重');
+      return;
+    }
+    const pairs = scanDupPairs(state.riddles);
+    setDupPairs(pairs);
+    setNotice(pairs.length ? `全库查重完成，发现 ${pairs.length} 组相似` : '全库查重完成，未发现重复');
   };
 
   const onFile = async (file: File | undefined) => {
@@ -66,20 +72,7 @@ export function RiddleList() {
     setNotice(`已删除 ${selectedInAll.length} 条`);
   };
 
-  const dupPairs = useMemo(() => {
-    if (!dupResult) return [];
-    const pairs: { a: Riddle; b: Riddle; sim: number }[] = [];
-    for (const r of state.riddles) {
-      for (const m of dupResult.get(r.id) ?? []) {
-        const other = state.riddles.find((x) => x.id === m.id);
-        if (!other) continue;
-        pairs.push({ a: r, b: other, sim: m.similarity });
-      }
-    }
-    return pairs;
-  }, [dupResult, state.riddles]);
-
-  const previewById = useMemo(() => {
+  const riddleById = useMemo(() => {
     const m = new Map<string, Riddle>();
     for (const r of state.riddles) m.set(r.id, r);
     return m;
@@ -191,19 +184,33 @@ export function RiddleList() {
         </div>
       )}
 
-      {dupPairs.length > 0 && (
+      {dupPairs && (
         <div className="panel">
           <h3>查重结果（{dupPairs.length} 组相似）</h3>
-          <ul className="dup-list">
-            {dupPairs.map((p, i) => (
-              <li key={i}>
-                <a href={`#/riddle/${p.a.id}`}>#{p.a.no} {p.a.surface}</a>
-                <span className="muted"> ↔ </span>
-                <a href={`#/riddle/${p.b.id}`}>#{p.b.no} {p.b.surface}</a>
-                <span className="badge">{p.sim} 相似</span>
-              </li>
-            ))}
-          </ul>
+          {dupPairs.length === 0 ? (
+            <p className="muted">未发现相似谜条。</p>
+          ) : (
+            <>
+              <ul className="dup-list">
+                {dupPairs.slice(0, DUP_LIST_LIMIT).map((p) => {
+                  const a = riddleById.get(p.aId);
+                  const b = riddleById.get(p.bId);
+                  if (!a || !b) return null;
+                  return (
+                    <li key={`${p.aId}|${p.bId}`}>
+                      <a href={`#/riddle/${a.id}`}>#{a.no} {a.surface}</a>
+                      <span className="muted"> ↔ </span>
+                      <a href={`#/riddle/${b.id}`}>#{b.no} {b.surface}</a>
+                      <span className="badge">{Math.round(p.similarity * 100)}% 相似</span>
+                    </li>
+                  );
+                })}
+              </ul>
+              {dupPairs.length > DUP_LIST_LIMIT && (
+                <p className="muted">… 仅显示前 {DUP_LIST_LIMIT} 组（共 {dupPairs.length} 组）</p>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -267,7 +274,7 @@ export function RiddleList() {
           <h3>最近登记</h3>
           <ul className="dup-list">
             {state.records.slice(0, 5).map((rec) => {
-              const r = previewById.get(rec.riddleId);
+              const r = riddleById.get(rec.riddleId);
               return (
                 <li key={rec.id}>
                   <span className="badge badge-solved">#{r?.no ?? '?'}</span>{' '}

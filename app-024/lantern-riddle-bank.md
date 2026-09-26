@@ -76,7 +76,7 @@ type AppSettings  = { event: EventInfo; print: PrintSetup; prizes: string[] };
 
 ## 8. 关键算法与实现点
 - **谜格规则引擎**：`validateRiddle` 对 9 种格各写一条规则。字数硬约束直接判 fail——秋千格 2 字、卷帘 / 上楼 / 下楼 ≥3 字、徐妃 / 梨花 / 白头 / 粉底 ≥2 字（`validate.ts:77-184`）。可自动判定的部分给确定结论：徐妃格用部件数据比较「归一组键」，偏旁不一判 fail，同旁则给出 `去「艹」旁读作「夫容」`（`validate.ts:107-114`）；梨花 / 白头 / 粉底从同音索引取候选（去声调，`datafiles.ts:43,52-60`）。语义扣合一律 suspect 并写明「语义对应无法自动判定」——`suspect()` 只在没有 fail 时生效，因此绝不误报 pass（`validate.ts:39-41,187`）。无格时另做生僻字（≥2 个 suspect、1 个仅提示）与多音字提示（`validate.ts:62-72`）。
-- **重复检测**：`normalizeText` 先按一张约 100 余对的繁→简字表逐字映射，再用 `/[\s\p{P}\p{S}]+/gu` 去掉空白、标点与符号，最后小写（`normalize.ts:3-20`）；`levenshtein` 带 `max` 提前剪枝，某行最小值超过 max 立即返回 `max+1`（`normalize.ts:23-42`）。`findSimilar` 先按长度差预筛，相似度 `1 - dist / max(len)`，达阈值降序取前 5（`duplicates.ts:14-36`）；`scanDuplicates` 全库两两比对并双向登记结果（`duplicates.ts:39-63`）。
+- **重复检测**：`normalizeText` 先按一张约 100 余对的繁→简字表逐字映射，再用 `/[\s\p{P}\p{S}]+/gu` 去掉空白、标点与符号，最后小写（`normalize.ts:3-20`）；`levenshtein` 带 `max` 提前剪枝，某行最小值超过 max 立即返回 `max+1`（`normalize.ts:23-42`）。`findSimilar` 先按长度差预筛，相似度 `1 - dist / max(len)`，达阈值降序取前 5（`duplicates.ts:14-36`）；`scanDuplicates` 全库两两比对并双向登记结果（`duplicates.ts:39-63`）；列表页经 `scanDupPairs` 去重为每对一条并按相似度降序展示（`duplicates.ts:72-84`）。
 - **A4 排版计算**：常量 A4 210×297mm、页边距 10mm、卡间距 4mm（`print.ts:4-7`）；先把 `perPage` 钳到 1~12，再枚举列数 1~6、行数 `ceil(want/cols)`，取「卡片面积最大」的组合，卡片尺寸取配置值与可用区均分的较小值；被缩小时置 `adjusted` 并生成告警文案（`print.ts:29-62`）。
 - **离线数据加载**：`loadDataCtx(BASE_URL)` 并行 fetch 三个 JSON，任一失败不抛错，而是记 `loadError` 并保持 `loaded=false`，顶栏显示「校验数据未加载」（`datafiles.ts:17-36`、`App.tsx:50-52`）。谐音索引惰性构建，按 `DataCtx` 用 WeakMap 缓存（`validate.ts:13-18`）。
 - **CSV 解析**：状态机支持 BOM、CRLF、引号内逗号 / 换行 / 双引号转义（`csv.ts:9-33`），导出统一 `\r\n` 行尾（`csv.ts:39`）。导入预览对「文件内重复」与「与库内重复」分别判定，后者先查归一化全等、再按同谜目算相似度（`csv.ts:140-172`）。
@@ -93,7 +93,7 @@ type AppSettings  = { event: EventInfo; print: PrintSetup; prizes: string[] };
 - 打印时隐藏顶栏、页脚、工具条与页面标题，每张 `.sheet` 后强制分页、最后一页不分页（`styles.css:232-244`）。
 
 ## 10. 验收标准
-- **单元测试 106 例全通过**：谜格校验 49、CSV 25、重复检测 13、打印版式 9、离线数据 7、性能 3（`npx vitest run` 输出 `Tests 106 passed`）。
+- **单元测试 110 例全通过**：谜格校验 49、CSV 25、重复检测 17、打印版式 9、离线数据 7、性能 3（`npx vitest run` 输出 `Tests 110 passed`）。
 - **E2E 19 例**覆盖：导入示例 53 条（预览显示「新增 53 / 格式错误 0」）→ 校验徽标（秋千格正例存疑、误例不通过、无格正例通过）→ 批量选 3 条出条（`.sheet` 1 页、`.card` 3 张、回收联含「猜中者姓名」、谜面计算字号 ≥ 18.5px ≈ 14pt）→ 现场登记与重复登记提示 → 兑奖号码 `DJ-0001` → 谜库导出 CSV 断言前三字节 `EF BB BF` → 300 条谜条 = 50 页 × 6 条且首卡 `data-no=1`、末卡 `data-no=300` → 断网登记 3 条后直接读 IndexedDB 计数为 3、刷新后仍在 → 全程 console 无 error（`tests/e2e/app.spec.ts`）。
 - **性能**：2000 条谜库带条件筛选、空筛选全量返回、单条查重均 < 100ms（`tests/perf.test.ts`）。
 - **排版**：每页 6 条 = 3 列 × 2 行、9 条 = 3 列 × 3 行、12 条不越界、`perPage=0` 钳为 1、63×135mm 在 6 条/页时宽度受限自动缩小并告警、超大卡片缩小后不超 A4 可用区（`tests/print-layout.test.ts`）。
