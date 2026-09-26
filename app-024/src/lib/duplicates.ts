@@ -35,10 +35,18 @@ export function findSimilar(
   return out.sort((a, b) => b.similarity - a.similarity).slice(0, limit);
 }
 
-/** 全库扫描：id -> 命中列表（批量按钮用，带长度预筛 + 剪枝） */
-export function scanDuplicates(list: Riddle[], threshold = DUP_THRESHOLD): Map<string, DupMatch[]> {
+export interface DupPair {
+  aId: string;
+  aNo: number;
+  bId: string;
+  bNo: number;
+  similarity: number; // 归一化后的相似度
+}
+
+/** 全库扫描：去重后的相似对列表（每个无序对只出现一次，按相似度降序） */
+export function scanDupPairs(list: Riddle[], threshold = DUP_THRESHOLD): DupPair[] {
   const norm = list.map((r) => ({ id: r.id, no: r.no, category: r.category, n: normalizeText(r.surface) }));
-  const map = new Map<string, DupMatch[]>();
+  const pairs: DupPair[] = [];
   for (let i = 0; i < norm.length; i++) {
     const a = norm[i];
     if (!a.n) continue;
@@ -51,13 +59,22 @@ export function scanDuplicates(list: Riddle[], threshold = DUP_THRESHOLD): Map<s
       if (dist > allowDiff) continue;
       const sim = 1 - dist / Math.max(a.n.length, b.n.length);
       if (sim < threshold) continue;
-      const m: DupMatch = { id: b.id, no: b.no, similarity: sim };
-      const m2: DupMatch = { id: a.id, no: a.no, similarity: sim };
-      const arr = map.get(a.id) || [];
-      arr.push(m); map.set(a.id, arr);
-      const arr2 = map.get(b.id) || [];
-      arr2.push(m2); map.set(b.id, arr2);
+      pairs.push({ aId: a.id, aNo: a.no, bId: b.id, bNo: b.no, similarity: sim });
     }
+  }
+  return pairs.sort((x, y) => y.similarity - x.similarity);
+}
+
+/** 全库扫描：id -> 命中列表（打印页排除重复等按条查询场景用，双向登记） */
+export function scanDuplicates(list: Riddle[], threshold = DUP_THRESHOLD): Map<string, DupMatch[]> {
+  const map = new Map<string, DupMatch[]>();
+  for (const p of scanDupPairs(list, threshold)) {
+    const arr = map.get(p.aId) || [];
+    arr.push({ id: p.bId, no: p.bNo, similarity: p.similarity });
+    map.set(p.aId, arr);
+    const arr2 = map.get(p.bId) || [];
+    arr2.push({ id: p.aId, no: p.aNo, similarity: p.similarity });
+    map.set(p.bId, arr2);
   }
   return map;
 }

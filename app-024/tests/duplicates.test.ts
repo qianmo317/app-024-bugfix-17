@@ -1,6 +1,6 @@
 // 重复检测测试（PRD §10：同谜面不同标点必须判重；阈值以下不误报）
 import { describe, it, expect } from 'vitest';
-import { findSimilar, scanDuplicates, DUP_THRESHOLD } from '../src/lib/duplicates';
+import { findSimilar, scanDuplicates, scanDupPairs, DUP_THRESHOLD } from '../src/lib/duplicates';
 import type { Riddle } from '../src/types';
 
 let seq = 0;
@@ -84,5 +84,39 @@ describe('scanDuplicates 全库扫描', () => {
     for (const arr of scanDuplicates(list).values()) {
       for (const m of arr) { expect(m.similarity).toBeGreaterThan(0); expect(m.similarity).toBeLessThanOrEqual(1); }
     }
+  });
+});
+
+describe('scanDupPairs 全库扫描（去重对列表）', () => {
+  it('同一对只出现一次（甲↔乙 不重复成 乙↔甲）', () => {
+    const list = [mk('快刀斩乱麻'), mk('快刀、斩乱麻！')];
+    const pairs = scanDupPairs(list);
+    expect(pairs).toHaveLength(1);
+    expect(pairs[0].aId).toBe(list[0].id);
+    expect(pairs[0].bId).toBe(list[1].id);
+    expect(pairs[0].similarity).toBe(1);
+  });
+  it('组数不翻倍：三条两两相似应得 3 组而非 6 组', () => {
+    const list = [mk('太阳西边下，月儿东边挂'), mk('太阳西边下月儿东边挂'), mk('太阳西边下，月儿东边挂！')];
+    expect(scanDupPairs(list)).toHaveLength(3);
+  });
+  it('按相似度降序排列', () => {
+    const list = [mk('一口咬掉牛尾巴'), mk('一口咬掉牛尾巴。'), mk('一口咬掉牛尾巴了')];
+    const pairs = scanDupPairs(list);
+    expect(pairs.length).toBeGreaterThanOrEqual(2);
+    for (let i = 1; i < pairs.length; i++) {
+      expect(pairs[i - 1].similarity).toBeGreaterThanOrEqual(pairs[i].similarity);
+    }
+    expect(pairs[0].similarity).toBe(1); // 最像的一对排在最前
+  });
+  it('无重复时返回空数组', () => {
+    const list = [mk('一口咬掉牛尾巴'), mk('风平浪静打一城市再说')];
+    expect(scanDupPairs(list)).toHaveLength(0);
+  });
+  it('与 scanDuplicates 结果一致（对数 = 双向命中总数的一半）', () => {
+    const list = [mk('太阳西边下，月儿东边挂'), mk('太阳西边下月儿东边挂'), mk('太阳西边下，月儿东边挂！')];
+    const map = scanDuplicates(list);
+    const hits = [...map.values()].reduce((n, arr) => n + arr.length, 0);
+    expect(scanDupPairs(list)).toHaveLength(hits / 2);
   });
 });
